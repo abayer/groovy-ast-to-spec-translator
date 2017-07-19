@@ -1,0 +1,14 @@
+apply plugin: 'groovy'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile 'org.codehaus.groovy:groovy-all:2.4.7'
+    testCompile 'junit:junit:4.12'
+}
+
+group = "com.andrewbayer.groovy"
+description = "Experimental work on Groovy AST -> ASTBuilder specification DSL translation"
+version = "0.1-SNAPSHOT"
