@@ -40,32 +40,15 @@ copy it into a new place in the translated-to-model AST. There's no elegant way
 I can find to mash up `AstBuilder.buildFromSpec`'s easy of writing and reuse of
 existing AST chunks. 
 
+*EDIT*: Turns out I was wrong. `expression.add(ASTNode)` actually does the 
+trick there. So...this may be stupid. But still, gonna play with it a bit more.
+
 But what if I could convert to the specification DSL consumed by 
 `AstBuilder.buildFromSpec` *from* existing AST nodes? Well, that'd be handy!
 
 ## Right, that's a lot of writing. Have you actually got anything working?
 
-Nope, not yet. Well, that's not entirely true - I can round-trip a 
-`VariableExpression`! But nothing more complex than that - as of now, there's
-something hosed in terms of passing closures around within the closure. So,
-something like:
-```groovy
-Closure variableClosure = {
-  variable "foo"
-}
-
-Closure unaryPlusClosure = {
-  unaryPlus variableClosure
-}
-
-new AstBuilder().buildFromSpec(unaryPlusClosure)
-```
-...results in:
-```groovy
-java.lang.IllegalArgumentException: unaryPlus could not be invoked. Expected to receive parameters [class org.codehaus.groovy.ast.expr.Expression] but found []
-```
-Which hoses pretty much everything I'm trying to do at this point. So, what's 
-up here is literally just an experiment, and not one I expect to succeed at,
-but I thought I'd get it up on GitHub anyway. I'll keep experimenting for at
-least a little while longer, and if I get anywhere productive in the end, hey,
-that'd be nifty!
+Kinda yeah! Not sure if this actually worthwhile, and I still have some 
+`ASTNode`s left to transform (and some various `BUG! ClassNode#getTypeClass 
+for MyClass is called before the type class is set` errors I have to figure
+out), but I'm a *lot* farther along than I was, like, an hour and a half ago.

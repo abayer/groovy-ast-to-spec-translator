@@ -17,12 +17,17 @@
 package com.andrewbayer.groovy.ast
 
 import org.codehaus.groovy.ast.ASTNode
+import org.codehaus.groovy.ast.AnnotationNode
 import org.codehaus.groovy.ast.ClassNode
+import org.codehaus.groovy.ast.ImportNode
 import org.codehaus.groovy.ast.MethodNode
 import org.codehaus.groovy.ast.Parameter
+import org.codehaus.groovy.ast.builder.AstBuilder
+import org.codehaus.groovy.ast.expr.AnnotationConstantExpression
 import org.codehaus.groovy.ast.expr.ArgumentListExpression
 import org.codehaus.groovy.ast.expr.ArrayExpression
 import org.codehaus.groovy.ast.expr.AttributeExpression
+import org.codehaus.groovy.ast.expr.BinaryExpression
 import org.codehaus.groovy.ast.expr.BitwiseNegationExpression
 import org.codehaus.groovy.ast.expr.BooleanExpression
 import org.codehaus.groovy.ast.expr.CastExpression
@@ -33,15 +38,18 @@ import org.codehaus.groovy.ast.expr.ConstantExpression
 import org.codehaus.groovy.ast.expr.ConstructorCallExpression
 import org.codehaus.groovy.ast.expr.DeclarationExpression
 import org.codehaus.groovy.ast.expr.ElvisOperatorExpression
+import org.codehaus.groovy.ast.expr.FieldExpression
 import org.codehaus.groovy.ast.expr.GStringExpression
 import org.codehaus.groovy.ast.expr.ListExpression
 import org.codehaus.groovy.ast.expr.MapEntryExpression
 import org.codehaus.groovy.ast.expr.MapExpression
 import org.codehaus.groovy.ast.expr.MethodCallExpression
+import org.codehaus.groovy.ast.expr.MethodPointerExpression
 import org.codehaus.groovy.ast.expr.NamedArgumentListExpression
 import org.codehaus.groovy.ast.expr.NotExpression
 import org.codehaus.groovy.ast.expr.PostfixExpression
 import org.codehaus.groovy.ast.expr.PrefixExpression
+import org.codehaus.groovy.ast.expr.PropertyExpression
 import org.codehaus.groovy.ast.expr.RangeExpression
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression
 import org.codehaus.groovy.ast.expr.TernaryExpression
@@ -51,8 +59,10 @@ import org.codehaus.groovy.ast.expr.UnaryPlusExpression
 import org.codehaus.groovy.ast.expr.VariableExpression
 import org.codehaus.groovy.ast.stmt.AssertStatement
 import org.codehaus.groovy.ast.stmt.BlockStatement
+import org.codehaus.groovy.ast.stmt.BreakStatement
 import org.codehaus.groovy.ast.stmt.CaseStatement
 import org.codehaus.groovy.ast.stmt.CatchStatement
+import org.codehaus.groovy.ast.stmt.ContinueStatement
 import org.codehaus.groovy.ast.stmt.EmptyStatement
 import org.codehaus.groovy.ast.stmt.ExpressionStatement
 import org.codehaus.groovy.ast.stmt.ForStatement
@@ -66,17 +76,23 @@ import org.codehaus.groovy.ast.stmt.WhileStatement
 
 
 class AstToSpecTranslator {
-    public Closure astToSpec(ASTNode e) {
+    private AstBuilder builder = new AstBuilder()
+
+    private ASTNode translate(ASTNode original) {
+        return builder.buildFromSpec(astToSpec(original))[0]
+    }
+
+    Closure astToSpec(ASTNode e) {
         throw new IllegalArgumentException("Unhandled ASTNode type: ${e.class}")
     }
 
-    public Closure astToSpec(ConstantExpression e) {
+    Closure astToSpec(ConstantExpression e) {
         return {
             constant e.value
         }
     }
 
-    public Closure astToSpec(GStringExpression e) {
+    Closure astToSpec(GStringExpression e) {
         return {
             gString e.text, {
                 strings {
@@ -86,206 +102,254 @@ class AstToSpecTranslator {
                 }
                 values {
                     e.values.each { v ->
-                        astToSpec(v)
+                        expression.add(translate(v))
                     }
                 }
             }
         }
     }
 
-    public Closure astToSpec(CastExpression e) {
+    Closure astToSpec(CastExpression e) {
         return {
             cast(e.type.typeClass) {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
             }
         }
     }
 
-    public Closure astToSpec(ConstructorCallExpression e) {
+    Closure astToSpec(ConstructorCallExpression e) {
         return {
             constructorCall(e.type.typeClass) {
-                argumentList {
-                    ((TupleExpression)e.arguments).expressions.each { expr ->
-                        astToSpec(expr)
-                    }
-                }
+                expression.add(translate(e.arguments))
             }
         }
     }
 
-    public Closure astToSpec(MethodCallExpression e) {
+    Closure astToSpec(MethodCallExpression e) {
         return {
             methodCall {
-                astToSpec(e.objectExpression)
+                expression.add(translate(e.objectExpression))
                 constant e.methodAsString
-                argumentList {
-                    ((TupleExpression)e.arguments).expressions.each { expr ->
-                        astToSpec(expr)
-                    }
-                }
+                expression.add(translate(e.arguments))
             }
         }
     }
 
-    // TODO: AnnotationConstantExpression
+    Closure astToSpec(AnnotationConstantExpression e) {
+        return {
+            annotationConstant {
+                expression.add(translate((AnnotationNode)e.value))
+            }
+        }
+    }
 
-    public Closure astToSpec(PostfixExpression e) {
+    Closure astToSpec(PostfixExpression e) {
         return {
             postfix {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
                 token e.operation.text
             }
         }
     }
 
-    // TODO: FieldExpression
+    Closure astToSpec(FieldExpression e) {
+        return {
+            field {
+                expression.add(translate(e.field))
+            }
+        }
+    }
 
-    public Closure astToSpec(MapExpression e) {
+    Closure astToSpec(MapExpression e) {
         return {
             map {
                 e.mapEntryExpressions.each { entry ->
-                    astToSpec(entry)
+                    expression.add(translate(entry))
                 }
             }
         }
     }
 
-    public Closure astToSpec(TupleExpression e) {
+    Closure astToSpec(TupleExpression e) {
         return {
             tuple {
                 e.expressions.each { expr ->
-                    astToSpec(expr)
+                    expression.add(translate(expr))
                 }
             }
         }
     }
 
-    public Closure astToSpec(MapEntryExpression e) {
+    Closure astToSpec(MapEntryExpression e) {
         return {
             mapEntry {
-                astToSpec(e.keyExpression)
-                astToSpec(e.valueExpression)
+                expression.add(translate(e.keyExpression))
+                expression.add(translate(e.valueExpression))
             }
         }
     }
 
-    // TODO: MethodPointerExpression
-    // TODO: PropertyExpression
+    Closure astToSpec(MethodPointerExpression e) {
+        return {
+            methodPointer {
+                expression.add(translate(e.expression))
+                expression.add(translate(e.methodName))
+            }
+        }
+    }
 
-    public Closure astToSpec(RangeExpression e) {
+    Closure astToSpec(PropertyExpression e) {
+        return {
+            property {
+                expression.add(translate(e.objectExpression))
+                expression.add(translate(e.property))
+            }
+        }
+    }
+
+    Closure astToSpec(RangeExpression e) {
         return {
             range {
-                astToSpec(e.from)
-                astToSpec(e.to)
+                expression.add(translate(e.from))
+                expression.add(translate(e.to))
                 inclusive e.inclusive
             }
         }
     }
 
-    public Closure astToSpec(EmptyStatement e) {
+    Closure astToSpec(EmptyStatement e) {
         return {
             empty()
         }
     }
 
-    // TODO: label
-    // TODO: ImportNode
+    Closure astToSpec(ImportNode e) {
+        return {
+            importNode {
+                type e.type.typeClass
+                alias e.alias
+            }
+        }
+    }
 
-    public Closure astToSpec(CatchStatement e) {
+    Closure astToSpec(CatchStatement e) {
         return {
             catchStatement {
-                astToSpec(e.variable)
-                astToSpec(e.code)
+                expression.add(translate(e.variable))
+                expression.add(translate(e.code))
             }
         }
     }
 
-    public Closure astToSpec(ThrowStatement e) {
+    Closure astToSpec(ThrowStatement e) {
         return {
             throwStatement {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
             }
         }
     }
 
-    public Closure astToSpec(SynchronizedStatement e) {
+    Closure astToSpec(SynchronizedStatement e) {
         return {
             synchronizedStatement {
-                astToSpec(e.expression)
-                astToSpec(e.code)
+                expression.add(translate(e.expression))
+                expression.add(translate(e.code))
             }
         }
     }
 
-    public Closure astToSpec(ReturnStatement e) {
+    Closure astToSpec(ReturnStatement e) {
         return {
             returnStatement {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
             }
         }
     }
 
-    public Closure astToSpec(TernaryExpression e) {
+    Closure astToSpec(TernaryExpression e) {
         return {
-            astToSpec(e.booleanExpression)
-            astToSpec(e.trueExpression)
-            astToSpec(e.falseExpression)
+            ternary {
+                expression.add(translate(e.booleanExpression))
+                expression.add(translate(e.trueExpression))
+                expression.add(translate(e.falseExpression))
+            }
         }
     }
 
-    public Closure astToSpec(ElvisOperatorExpression e) {
+    Closure astToSpec(ElvisOperatorExpression e) {
         return {
             elvisOperator {
-                astToSpec(e.trueExpression)
-                astToSpec(e.falseExpression)
+                expression.add(translate(e.trueExpression))
+                expression.add(translate(e.falseExpression))
             }
         }
     }
 
-    // TODO: BreakStatement
-    // TODO: ContinueStatement
-
-    public Closure astToSpec(CaseStatement e) {
+    Closure astToSpec(BreakStatement e) {
         return {
-            astToSpec(e.expression)
-            astToSpec(e.code)
+            if (e.label != null) {
+                breakStatement(e.label)
+            } else {
+                breakStatement()
+            }
+        }
+    }
+
+    Closure astToSpec(ContinueStatement e) {
+        return {
+            if (e.label != null) {
+                continueStatement {
+                    label(e.label)
+                }
+            } else {
+                continueStatement()
+            }
+        }
+    }
+
+    Closure astToSpec(CaseStatement e) {
+        return {
+            expression.add(translate(e.expression))
+            expression.add(translate(e.code))
         }
     }
 
     // Don't need to do defaultCase()
 
-    public Closure astToSpec(PrefixExpression e) {
+    Closure astToSpec(PrefixExpression e) {
         return {
-            token e.operation.text
-            astToSpec(e.expression)
-        }
-    }
-
-    public Closure astToSpec(NotExpression e) {
-        return {
-            not {
-                astToSpec(e.expression)
+            prefix {
+                token e.operation.text
+                expression.add(translate(e.expression))
             }
         }
     }
 
-    // TODO: DynamicVariable? Probably not.
-    // TODO: exceptions - probably not
+    Closure astToSpec(NotExpression e) {
+        return {
+            not {
+                expression.add(translate(e.expression))
+            }
+        }
+    }
+
+    // TODO: DynamicVariable
+    // TODO: exceptions
     // TODO: annotations
-    // TODO: methods? Do we need this?
-    // TODO: constructors?
-    // TODO: properties?
-    // TODO: fields?
+    // TODO: methods
+    // TODO: constructors
+    // TODO: properties
+    // TODO: fields
     // don't need strings or values, I think.
     // don't need inclusive
 
-    public Closure astToSpec(IfStatement e) {
+    Closure astToSpec(IfStatement e) {
         return {
             ifStatement {
-                astToSpec(e.booleanExpression)
-                astToSpec(e.ifBlock)
+                expression.add(translate(e.booleanExpression))
+                expression.add(translate(e.ifBlock))
                 if (e.elseBlock != null) {
-                    astToSpec(e.elseBlock)
+                    expression.add(translate(e.elseBlock))
                 }
             }
         }
@@ -293,131 +357,141 @@ class AstToSpecTranslator {
 
     // TODO: SpreadExpression and SpreadMapExpression, wwhich we don't really support anyway
 
-    public Closure astToSpec(WhileStatement e) {
+    Closure astToSpec(WhileStatement e) {
         return {
             whileStatement {
-                astToSpec(e.booleanExpression)
-                astToSpec(e.loopBlock)
+                expression.add(translate(e.booleanExpression))
+                expression.add(translate(e.loopBlock))
             }
         }
     }
 
-    public Closure astToSpec(ForStatement e) {
+    Closure astToSpec(ForStatement e) {
         return {
             forStatement {
-                astToSpec(e.variable)
-                astToSpec(e.collectionExpression)
-                astToSpec(e.loopBlock)
+                expression.add(translate(e.variable))
+                expression.add(translate(e.collectionExpression))
+                expression.add(translate(e.loopBlock))
             }
         }
     }
 
-    public Closure astToSpec(ClosureListExpression e) {
+    Closure astToSpec(ClosureListExpression e) {
         return {
             closureList {
                 e.expressions.each { expr ->
-                    astToSpec(expr)
+                    expression.add(translate(expr))
                 }
             }
         }
     }
 
-    public Closure astToSpec(DeclarationExpression e) {
+    Closure astToSpec(DeclarationExpression e) {
         return {
             declaration {
-                astToSpec(e.leftExpression)
+                expression.add(translate(e.leftExpression))
                 token e.operation.text
                 if (e.rightExpression != null) {
-                    astToSpec(e.rightExpression)
+                    expression.add(translate(e.rightExpression))
                 }
             }
         }
     }
 
-    public Closure astToSpec(ListExpression e) {
+    Closure astToSpec(ListExpression e) {
         return {
             list {
                 e.expressions.each { expr ->
-                    astToSpec(expr)
+                    expression.add(translate(expr))
                 }
             }
         }
     }
 
-    public Closure astToSpec(BitwiseNegationExpression e) {
+    Closure astToSpec(BitwiseNegationExpression e) {
         return {
             bitwiseNegation {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
             }
         }
     }
 
-    public Closure astToSpec(ClosureExpression e) {
+    Closure astToSpec(ClosureExpression e) {
         return {
             closure {
                 parameters {
                     e.parameters.each { p ->
-                        astToSpec(p)
+                        expression.add(translate(p))
                     }
                 }
-                astToSpec(e.code)
+                expression.add(translate(e.code))
             }
         }
     }
 
-    public Closure astToSpec(BooleanExpression e) {
+    Closure astToSpec(BooleanExpression e) {
         return {
             booleanExpression {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
             }
         }
     }
 
-    public Closure astToSpec(UnaryPlusExpression e) {
+    Closure astToSpec(BinaryExpression e) {
+        return {
+            binary {
+                expression.add(translate(e.leftExpression))
+                token e.operation.text
+                expression.add(translate(e.rightExpression))
+            }
+        }
+    }
+
+    Closure astToSpec(UnaryPlusExpression e) {
         return {
             unaryPlus {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
             }
         }
     }
 
-    public Closure astToSpec(ClassExpression e) {
+    Closure astToSpec(ClassExpression e) {
         return {
             classExpression e.type.typeClass
         }
     }
 
-    public Closure astToSpec(UnaryMinusExpression e) {
+    Closure astToSpec(UnaryMinusExpression e) {
         return {
             unaryMinus {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
             }
 
         }
     }
 
-    public Closure astToSpec(AttributeExpression e) {
+    Closure astToSpec(AttributeExpression e) {
         return {
             attribute {
-                astToSpec(e.objectExpression)
-                astToSpec(e.property)
+                expression.add(translate(e.objectExpression))
+                expression.add(translate(e.property))
             }
         }
     }
 
-    public Closure astToSpec(ExpressionStatement e) {
+    Closure astToSpec(ExpressionStatement e) {
         return {
             expression {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
             }
         }
     }
 
-    public Closure astToSpec(NamedArgumentListExpression e) {
+    Closure astToSpec(NamedArgumentListExpression e) {
         return {
             namedArgumentList {
                 e.mapEntryExpressions.each { expr ->
-                    astToSpec(expr)
+                    expression.add(translate(expr))
                 }
             }
         }
@@ -425,7 +499,7 @@ class AstToSpecTranslator {
 
     // TODO: interfaces, mixins, GenericTypes?
 
-    public Closure astToSpec(ClassNode e) {
+    Closure astToSpec(ClassNode e) {
         return {
             classNode e.typeClass
         }
@@ -433,27 +507,27 @@ class AstToSpecTranslator {
 
     // Don't need parameters
 
-    public Closure astToSpec(BlockStatement e) {
+    Closure astToSpec(BlockStatement e) {
         return {
             block {
                 e.statements.each { s ->
-                    astToSpec(s)
+                    expression.add(translate(s))
                 }
             }
         }
     }
 
-    public Closure astToSpec(Parameter e) {
+    Closure astToSpec(Parameter e) {
         return {
             parameter((e.name): e.type.typeClass)
         }
     }
 
-    public Closure astToSpec(ArrayExpression e) {
+    Closure astToSpec(ArrayExpression e) {
         return {
-            array(e.elementType) {
+            array(e.elementType.typeClass) {
                 e.expressions.each { expr ->
-                    astToSpec(expr)
+                    expression.add(translate(expr))
                 }
             }
         }
@@ -462,14 +536,14 @@ class AstToSpecTranslator {
     // TODO: GenericsType
     // TODO: upperBound, lowerBound, member
 
-    public Closure astToSpec(ArgumentListExpression e) {
+    Closure astToSpec(ArgumentListExpression e) {
         return {
             if (e.expressions.isEmpty()) {
                 argumentList()
             } else {
                 argumentList {
                     e.expressions.each { expr ->
-                        astToSpec(expr)
+                        expression.add(translate(expr))
                     }
                 }
             }
@@ -480,53 +554,53 @@ class AstToSpecTranslator {
     // TODO: MixinNode
     // TODO: maybe - new ClassNode
 
-    public Closure astToSpec(AssertStatement e) {
+    Closure astToSpec(AssertStatement e) {
         return {
             assertStatement {
-                astToSpec(e.booleanExpression)
+                expression.add(translate(e.booleanExpression))
                 if (e.messageExpression != null) {
-                    astToSpec(e.messageExpression)
+                    expression.add(translate(e.messageExpression))
                 }
             }
         }
     }
 
-    public Closure astToSpec(TryCatchStatement e) {
+    Closure astToSpec(TryCatchStatement e) {
         return {
             tryCatch {
-                astToSpec(e.tryStatement)
+                expression.add(translate(e.tryStatement))
                 if (e.finallyStatement != null) {
-                    astToSpec(e.finallyStatement)
+                    expression.add(translate(e.finallyStatement))
                 } else {
                     empty()
                 }
                 e.catchStatements.each { expr ->
-                    astToSpec(expr)
+                    expression.add(translate(expr))
                 }
             }
         }
     }
 
-    public Closure astToSpec(VariableExpression e) {
+    Closure astToSpec(VariableExpression e) {
         return {
             variable e.name
         }
     }
 
-    public Closure astToSpec(MethodNode e) {
+    Closure astToSpec(MethodNode e) {
         return {
             method(e.name, e.modifiers, e.returnType) {
                 parameters {
                     e.parameters.each { p ->
-                        astToSpec(p)
+                        expression.add(translate(p))
                     }
                 }
                 exceptions {
                     e.exceptions.each { c ->
-                        astToSpec(c)
+                        expression.add(translate(c))
                     }
                 }
-                astToSpec(e.code)
+                expression.add(translate(e.code))
                 annotations {
                     // TODO: Translate these sucker.
                 }
@@ -534,17 +608,17 @@ class AstToSpecTranslator {
         }
     }
 
-    public Closure astToSpec(SwitchStatement e) {
+    Closure astToSpec(SwitchStatement e) {
         return {
             switchStatement {
-                astToSpec(e.expression)
+                expression.add(translate(e.expression))
                 defaultCase {
                     ((BlockStatement)e.defaultStatement).statements.each { s ->
-                        astToSpec(s)
+                        expression.add(translate(s))
                     }
                 }
                 e.caseStatements.each { c ->
-                    astToSpec(c)
+                    expression.add(translate(c))
                 }
             }
         }
@@ -554,12 +628,12 @@ class AstToSpecTranslator {
     // TODO: InnerClassNode
     // TODO: PropertyNode
 
-    public Closure astToSpec(StaticMethodCallExpression e) {
+    Closure astToSpec(StaticMethodCallExpression e) {
         return {
             staticMethodCall(e.ownerType.typeClass, e.methodAsString) {
                 argumentList {
                     e.arguments.each { expr ->
-                        astToSpec(expr)
+                        expression.add(translate(expr))
                     }
                 }
             }
