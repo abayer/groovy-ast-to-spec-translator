@@ -501,7 +501,25 @@ class AstToSpecTranslator {
 
     Closure astToSpec(ClassNode e) {
         return {
-            classNode e.typeClass
+            if (e.isPrimaryClassNode()) {
+                classNode(e.name, e.modifiers) {
+                    if (e.superClass != null) {
+                        expression.add(translate(e.superClass))
+                    }
+                    interfaces {
+                        e.interfaces.each { i ->
+                            expression.add(translate(i))
+                        }
+                    }
+                    mixins {
+                        e.mixins.each { m ->
+                            expression.add(translate(m))
+                        }
+                    }
+                }
+            } else {
+                classNode e.typeClass
+            }
         }
     }
 
@@ -552,7 +570,6 @@ class AstToSpecTranslator {
 
     // TODO: AnnotationNode
     // TODO: MixinNode
-    // TODO: maybe - new ClassNode
 
     Closure astToSpec(AssertStatement e) {
         return {
