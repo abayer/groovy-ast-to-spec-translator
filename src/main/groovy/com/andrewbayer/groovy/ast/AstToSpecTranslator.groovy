@@ -19,9 +19,15 @@ package com.andrewbayer.groovy.ast
 import org.codehaus.groovy.ast.ASTNode
 import org.codehaus.groovy.ast.AnnotationNode
 import org.codehaus.groovy.ast.ClassNode
+import org.codehaus.groovy.ast.ConstructorNode
+import org.codehaus.groovy.ast.FieldNode
+import org.codehaus.groovy.ast.GenericsType
 import org.codehaus.groovy.ast.ImportNode
+import org.codehaus.groovy.ast.InnerClassNode
 import org.codehaus.groovy.ast.MethodNode
+import org.codehaus.groovy.ast.MixinNode
 import org.codehaus.groovy.ast.Parameter
+import org.codehaus.groovy.ast.PropertyNode
 import org.codehaus.groovy.ast.builder.AstBuilder
 import org.codehaus.groovy.ast.expr.AnnotationConstantExpression
 import org.codehaus.groovy.ast.expr.ArgumentListExpression
@@ -51,6 +57,8 @@ import org.codehaus.groovy.ast.expr.PostfixExpression
 import org.codehaus.groovy.ast.expr.PrefixExpression
 import org.codehaus.groovy.ast.expr.PropertyExpression
 import org.codehaus.groovy.ast.expr.RangeExpression
+import org.codehaus.groovy.ast.expr.SpreadExpression
+import org.codehaus.groovy.ast.expr.SpreadMapExpression
 import org.codehaus.groovy.ast.expr.StaticMethodCallExpression
 import org.codehaus.groovy.ast.expr.TernaryExpression
 import org.codehaus.groovy.ast.expr.TupleExpression
@@ -225,10 +233,7 @@ class AstToSpecTranslator {
 
     Closure astToSpec(ImportNode e) {
         return {
-            importNode {
-                type e.type.typeClass
-                alias e.alias
-            }
+            importNode(e.type.typeClass, e.alias)
         }
     }
 
@@ -309,8 +314,10 @@ class AstToSpecTranslator {
 
     Closure astToSpec(CaseStatement e) {
         return {
-            expression.add(translate(e.expression))
-            expression.add(translate(e.code))
+            caseStatement {
+                expression.add(translate(e.expression))
+                expression.add(translate(e.code))
+            }
         }
     }
 
@@ -333,15 +340,7 @@ class AstToSpecTranslator {
         }
     }
 
-    // TODO: DynamicVariable
-    // TODO: exceptions
-    // TODO: annotations
-    // TODO: methods
-    // TODO: constructors
-    // TODO: properties
-    // TODO: fields
-    // don't need strings or values, I think.
-    // don't need inclusive
+    // TODO: DynamicVariable?
 
     Closure astToSpec(IfStatement e) {
         return {
@@ -355,7 +354,21 @@ class AstToSpecTranslator {
         }
     }
 
-    // TODO: SpreadExpression and SpreadMapExpression, wwhich we don't really support anyway
+    Closure astToSpec(SpreadExpression e) {
+        return {
+            spread {
+                expression.add(translate(e.expression))
+            }
+        }
+    }
+
+    Closure astToSpec(SpreadMapExpression e) {
+        return {
+            spreadMap {
+                expression.add(translate(e.expression))
+            }
+        }
+    }
 
     Closure astToSpec(WhileStatement e) {
         return {
@@ -497,8 +510,6 @@ class AstToSpecTranslator {
         }
     }
 
-    // TODO: interfaces, mixins, GenericTypes?
-
     Closure astToSpec(ClassNode e) {
         return {
             if (e.isPrimaryClassNode()) {
@@ -514,6 +525,13 @@ class AstToSpecTranslator {
                     mixins {
                         e.mixins.each { m ->
                             expression.add(translate(m))
+                        }
+                    }
+                    if (e.genericsTypes != null && e.genericsTypes.length > 0) {
+                        genericsTypes {
+                            e.genericsTypes.each { g ->
+                                expression.add(translate(g))
+                            }
                         }
                     }
                 }
@@ -537,7 +555,13 @@ class AstToSpecTranslator {
 
     Closure astToSpec(Parameter e) {
         return {
-            parameter((e.name): e.type.typeClass)
+            if (e.hasInitialExpression()) {
+                parameter((e.name): e.type.typeClass) {
+                    expression.add(translate(e.initialExpression))
+                }
+            } else {
+                parameter((e.name): e.type.typeClass)
+            }
         }
     }
 
@@ -551,8 +575,26 @@ class AstToSpecTranslator {
         }
     }
 
-    // TODO: GenericsType
-    // TODO: upperBound, lowerBound, member
+    Closure astToSpec(GenericsType e) {
+        return {
+            if ((e.upperBounds != null && e.upperBounds.length > 0) || e.lowerBound != null) {
+                genericsType(e.type.typeClass) {
+                    if (e.upperBounds != null && e.upperBounds.length > 0) {
+                        upperBound {
+                            e.upperBounds.each { u ->
+                                expression.add(translate(u))
+                            }
+                        }
+                    }
+                    if (e.lowerBound != null) {
+                        lowerBound e.lowerBound.typeClass
+                    }
+                }
+            } else {
+                genericsType(e.type.typeClass)
+            }
+        }
+    }
 
     Closure astToSpec(ArgumentListExpression e) {
         return {
@@ -568,8 +610,36 @@ class AstToSpecTranslator {
         }
     }
 
-    // TODO: AnnotationNode
-    // TODO: MixinNode
+    Closure astToSpec(AnnotationNode e) {
+        return {
+            if (e.members.isEmpty()) {
+                annotation(e.classNode.typeClass)
+            } else {
+                annotation(e.classNode.typeClass) {
+                    e.members.each { k, v ->
+                        member(k) {
+                            expression.add(translate(v))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Closure astToSpec(MixinNode e) {
+        return {
+            mixin(e.name, e.modifiers) {
+                expression.add(translate(e.superClass))
+                if (e.interfaces != null && e.interfaces.length > 0) {
+                    interfaces {
+                        e.interfaces.each { i ->
+                            expression.add(translate(i))
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Closure astToSpec(AssertStatement e) {
         return {
@@ -606,7 +676,7 @@ class AstToSpecTranslator {
 
     Closure astToSpec(MethodNode e) {
         return {
-            method(e.name, e.modifiers, e.returnType) {
+            method(e.name, e.modifiers, e.returnType.typeClass) {
                 parameters {
                     e.parameters.each { p ->
                         expression.add(translate(p))
@@ -619,7 +689,9 @@ class AstToSpecTranslator {
                 }
                 expression.add(translate(e.code))
                 annotations {
-                    // TODO: Translate these sucker.
+                    e.annotations.each { a ->
+                        expression.add(translate(a))
+                    }
                 }
             }
         }
@@ -641,9 +713,53 @@ class AstToSpecTranslator {
         }
     }
 
-    // TODO: FieldNode
-    // TODO: InnerClassNode
-    // TODO: PropertyNode
+    Closure astToSpec(FieldNode e) {
+        return {
+            if (e.hasInitialExpression()) {
+                fieldNode(e.name, e.modifiers, e.type.typeClass, e.owner.typeClass) {
+                    expression.add(translate(e.initialValueExpression))
+                }
+            } else {
+                fieldNode(e.name, e.modifiers, e.type.typeClass, e.owner.typeClass)
+            }
+        }
+    }
+
+    Closure astToSpec(InnerClassNode e) {
+        return {
+            innerClass(e.name, e.modifiers) {
+                expression.add(translate(e.outerClass))
+                expression.add(translate(e.superClass))
+                interfaces {
+                    e.interfaces.each { i ->
+                        expression.add(translate(i))
+                    }
+                }
+                mixins {
+                    e.mixins.each { m ->
+                        expression.add(translate(m))
+                    }
+                }
+            }
+        }
+    }
+
+    Closure astToSpec(PropertyNode e) {
+        return {
+            propertyNode(e.name, e.modifiers, e.type.typeClass, e.field.owner.typeClass) {
+                if (e.hasInitialExpression()) {
+                    expression.add(translate(e.initialExpression))
+                }
+                if (e.getterBlock != null) {
+                    expression.add(translate(e.getterBlock))
+                    if (e.setterBlock != null) {
+                        expression.add(translate(e.setterBlock))
+                    }
+                }
+            }
+
+        }
+    }
 
     Closure astToSpec(StaticMethodCallExpression e) {
         return {
@@ -657,5 +773,28 @@ class AstToSpecTranslator {
         }
     }
 
-    // TODO: ConstructorNode
+    Closure astToSpec(ConstructorNode e) {
+        return {
+            constructor(e.modifiers) {
+                parameters {
+                    e.parameters.each { p ->
+                        expression.add(translate(p))
+                    }
+                }
+                exceptions {
+                    e.exceptions.each { ex ->
+                        expression.add(translate(ex))
+                    }
+                }
+                expression.add(translate(e.code))
+                if (!e.annotations.isEmpty()) {
+                    annotations {
+                        e.annotations.each { a ->
+                            expression.add(translate(a))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
